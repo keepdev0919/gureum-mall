@@ -1,0 +1,943 @@
+<title>구름몰 백엔드 탐험</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Gowun+Dodum&display=swap" rel="stylesheet">
+<style>
+/* Layout: 위 HUD(할 일·진행도) / 가운데 게임 화면(캔버스 + 대화창 + 활동창이 겹침) / 아래 터치 패드 */
+:root{
+  --bg:#D5E1EA; --ink:#1B2040; --ink2:#2E3666; --paper:#F7F9FC; --line:#C3D0DC;
+  --sun:#FFC83D; --mint:#23A585; --coral:#E8604F; --sky:#3F8FD8; --muted:#56607F;
+  --display:"Do Hyeon","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --body:"Gowun Dodum","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  color-scheme:light;
+}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55}
+#app{max-width:980px;margin:0 auto;padding-block:12px 20px;padding-inline:16px;display:flex;flex-direction:column;gap:10px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+h1{font-family:var(--display);font-weight:400;font-size:26px;margin:0;letter-spacing:.5px;text-wrap:balance}
+h1 small{font-size:14px;color:var(--muted);margin-left:6px;letter-spacing:0}
+.hbtns{margin-left:auto;display:flex;gap:6px}
+.hbtn{font:inherit;font-size:13px;border:2px solid var(--ink);background:var(--paper);color:var(--ink);border-radius:8px;padding:4px 10px;cursor:pointer}
+.hbtn:hover{background:var(--sun)}
+.hbtn:focus-visible,button:focus-visible{outline:3px solid var(--sky);outline-offset:2px}
+.quest{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;background:var(--ink);color:var(--paper);border-radius:10px;padding:8px 12px}
+.quest .lbl{font-family:var(--display);color:var(--sun);font-size:15px;letter-spacing:.6px}
+.quest .txt{flex:1;min-width:0}
+.pips{display:flex;gap:4px}
+.pip{width:22px;height:8px;border-radius:4px;background:#4A5285}
+.pip.done{background:var(--mint)}
+.pip.now{background:var(--sun)}
+#stage{position:relative;height:clamp(340px,64vh,640px);border-radius:14px;overflow:hidden;background:#232948;border:3px solid var(--ink)}
+#cv{display:block;width:100%;height:100%;outline:none}
+/* 대화창 */
+#dlg{position:absolute;left:10px;right:10px;bottom:10px;background:var(--paper);border:3px solid var(--ink);border-radius:12px;padding:12px 14px 12px;box-shadow:0 5px 0 rgba(27,32,64,.35);cursor:pointer;max-height:70%;overflow:auto}
+#dlg .sp{display:inline-block;font-family:var(--display);font-size:15px;color:#fff;border-radius:6px;padding:1px 9px;margin-bottom:4px}
+#dlg .tx{font-size:16px;line-height:1.6}
+#dlg .tx b{background:linear-gradient(transparent 55%,rgba(255,200,61,.75) 55%);font-weight:700}
+#dlg .more{position:absolute;right:12px;bottom:6px;font-size:12px;color:var(--muted)}
+#dlg .opts{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.opt{font:inherit;text-align:left;border:2px solid var(--ink);background:#fff;color:var(--ink);border-radius:8px;padding:7px 10px;cursor:pointer}
+.opt:hover{background:#FFF3CF}
+.opt.wrong{background:#FBE0DC;border-color:var(--coral);color:#8A2A1F}
+.opt.right{background:#D6F3EA;border-color:var(--mint)}
+.opt:disabled{cursor:default}
+.fb{min-height:1.4em;margin:6px 0 0;font-size:14px}
+.fb.ok{color:#137A60}.fb.no{color:#B3392A}
+/* 토스트 */
+#toast{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:var(--sun);color:var(--ink);font-family:var(--display);font-size:15px;padding:5px 14px;border-radius:20px;border:2px solid var(--ink);white-space:nowrap;transition:opacity .3s}
+/* 활동창 */
+#modal{position:absolute;inset:0;background:rgba(20,24,50,.62);display:flex;align-items:center;justify-content:center;padding:12px}
+#modal .panel{background:var(--paper);border:3px solid var(--ink);border-radius:14px;width:100%;max-width:640px;max-height:100%;overflow:auto;padding:16px 18px}
+#modal h2{font-family:var(--display);font-weight:400;font-size:22px;margin:0 0 2px}
+#modal .sub{color:var(--muted);margin:0 0 12px;font-size:14px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chip{background:#E8EEF6;border-radius:6px;padding:3px 8px;font-size:13px}
+.chip b{font-family:ui-monospace,Menlo,monospace}
+.cust{display:flex;align-items:center;gap:12px;background:#fff;border:2px dashed var(--line);border-radius:10px;padding:12px;margin-bottom:10px;min-height:64px}
+.who{font-family:var(--display);font-size:18px;min-width:3.2em}
+.bubble{background:#EEF3F8;border-radius:10px;padding:6px 10px;flex:1;min-width:0}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+.row .opt{flex:1 1 150px;text-align:center}
+.primary{font-family:var(--display);font-size:17px;border:3px solid var(--ink);background:var(--sun);color:var(--ink);border-radius:10px;padding:8px 18px;cursor:pointer;margin-top:12px}
+.primary:hover{filter:brightness(1.05)}
+.meta{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.counters{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.ctr{border:2px solid var(--ink);border-radius:10px;background:#fff;padding:8px;text-align:center;cursor:pointer;font:inherit;color:var(--ink)}
+.ctr:hover{background:#FFF3CF}
+.ctr .nm{font-family:var(--display);font-size:16px}
+.dots{display:flex;flex-wrap:wrap;gap:3px;justify-content:center;min-height:40px;align-content:flex-start;margin-top:6px}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--coral)}
+.steps{display:flex;flex-direction:column;gap:6px}
+.picked{counter-reset:s;display:flex;flex-direction:column;gap:5px;margin-bottom:12px;min-height:30px;border-left:3px solid var(--mint);padding-left:10px}
+.picked div{counter-increment:s;font-size:14px}
+.picked div::before{content:counter(s) ". ";font-weight:700;color:var(--mint)}
+@keyframes shake{0%,100%{transform:none}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+.shake{animation:shake .25s 2}
+.tpl{font-family:ui-monospace,Menlo,monospace;font-size:13px;background:var(--ink);color:#E8ECFF;border-radius:8px;padding:10px 12px;overflow-x:auto;white-space:pre}
+.tpl .v{color:var(--sun)}
+table.ctx{width:100%;border-collapse:collapse;font-size:14px;margin:8px 0}
+table.ctx th,table.ctx td{border-bottom:1px solid var(--line);padding:5px 6px;text-align:left}
+table.ctx th{font-family:var(--display);font-weight:400;color:var(--muted)}
+table.ctx select{font:inherit;font-size:14px;padding:2px 4px}
+.tw{overflow-x:auto}
+.kit{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px}
+.kit .opt.on{background:#D6F3EA;border-color:var(--mint)}
+.cities{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px;margin-top:10px}
+.city{background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:13px}
+.bar{height:6px;background:#E3E9F0;border-radius:3px;margin-top:4px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--mint);transition:width 1.6s ease}
+.big{font-family:var(--display);font-size:32px;font-variant-numeric:tabular-nums}
+.log{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#10142C;color:#9BE3C9;border-radius:8px;padding:8px 10px;min-height:60px;max-height:120px;overflow:auto;margin-top:10px}
+.note{background:#FFF3CF;border-radius:8px;padding:8px 10px;font-size:14px;margin-bottom:10px}
+.match{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.match .col{display:flex;flex-direction:column;gap:6px;min-width:0}
+.opt.sel{background:#FFE9A8}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 12px}
+.node{background:#fff;border:2px solid var(--ink);border-radius:8px;padding:4px 8px;font-size:13px;line-height:1.35}
+.node em{display:block;font-style:normal;font-size:11px;color:var(--muted)}
+.arr{color:var(--muted);font-weight:700}
+.flowlbl{font-family:var(--display);font-size:16px;margin-top:6px}
+.cert{border:3px double var(--ink);border-radius:12px;padding:14px;text-align:center;background:#FFFBEF;margin-top:10px}
+.cert .t{font-family:var(--display);font-size:26px}
+.gloss{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.gcard{background:#fff;border:2px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
+.gcard .n{font-family:var(--display);font-size:18px}
+.gcard .m{font-size:13px;color:var(--coral)}
+.gcard .r{font-size:13px;margin-top:2px}
+.gcard .v{font-size:12px;color:var(--muted);margin-top:3px}
+/* 타이틀 */
+#title{position:absolute;inset:0;background:#232948;color:var(--paper);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;gap:10px}
+#title .big1{font-family:var(--display);font-size:clamp(34px,7vw,56px);color:var(--sun);line-height:1.1}
+#title p{max-width:34em;margin:0;color:#C9D1F0}
+#title .keys{font-size:13px;color:#9AA4CF}
+#title kbd{background:#3A4274;border-radius:4px;padding:1px 6px;font-family:inherit;color:#fff}
+/* 터치 패드 */
+#pad{display:none;justify-content:space-between;align-items:center;gap:12px;user-select:none;-webkit-user-select:none;touch-action:none}
+@media (pointer:coarse){#pad{display:flex}}
+.dpad{display:grid;grid-template-columns:repeat(3,54px);grid-template-rows:repeat(3,54px);gap:4px}
+.pb{border:3px solid var(--ink);background:var(--paper);border-radius:12px;font-size:20px;color:var(--ink);touch-action:none}
+.pb:active,.pb.hold{background:var(--sun)}
+.abtn{width:84px;height:84px;border-radius:50%;font-family:var(--display);font-size:24px}
+.foot{font-size:12px;color:var(--muted)}
+.foot a{color:var(--ink2)}
+@media (prefers-reduced-motion:reduce){.shake{animation:none}.bar i{transition:none}}
+</style>
+
+<div id="app">
+  <header>
+    <h1>구름몰 백엔드 탐험 <small>수습 매니저 온보딩</small></h1>
+    <div class="hbtns">
+      <button class="hbtn" id="bGloss" type="button">도감 (T)</button>
+      <button class="hbtn" id="bReset" type="button">처음부터</button>
+    </div>
+  </header>
+  <div class="quest">
+    <span class="lbl">지금 할 일</span>
+    <span class="txt" id="qtxt">…</span>
+    <span class="pips" id="pips"></span>
+  </div>
+  <div id="stage">
+    <canvas id="cv" tabindex="0" aria-label="쇼핑몰 지도. 방향키로 움직이고 스페이스로 대화"></canvas>
+    <div id="dlg" hidden></div>
+    <div id="toast" hidden></div>
+    <div id="modal" hidden><div class="panel"><h2 id="mTitle"></h2><p class="sub" id="mSub"></p><div id="mBody"></div></div></div>
+    <div id="title">
+      <div class="big1">구름몰 백엔드 탐험</div>
+      <p>아틀라시안에서 해고된 엔지니어가 공개한 40분짜리 시스템 강의를 쇼핑몰 하나로 바꿨어요. 신입 매니저가 되어 매장 사람들을 만나면서 백엔드를 배워 봐요.</p>
+      <p class="keys"><kbd>←↑↓→</kbd> 또는 <kbd>WASD</kbd>로 이동 · <kbd>Space</kbd>로 대화·넘기기 · <kbd>T</kbd> 도감</p>
+      <button class="primary" id="bStart" type="button">시작하기</button>
+    </div>
+  </div>
+  <div id="pad">
+    <div class="dpad">
+      <span></span><button class="pb" data-k="up" type="button" aria-label="위">▲</button><span></span>
+      <button class="pb" data-k="left" type="button" aria-label="왼쪽">◀</button><span></span><button class="pb" data-k="right" type="button" aria-label="오른쪽">▶</button>
+      <span></span><button class="pb" data-k="down" type="button" aria-label="아래">▼</button><span></span>
+    </div>
+    <button class="pb abtn" id="bA" type="button">대화</button>
+  </div>
+  <p class="foot">원본 영상: <a href="https://www.youtube.com/watch?v=55pTFVoclvE" target="_blank" rel="noopener">I was laid off by Atlassian (Vasilios Syrakis, 2026)</a> · 게임 속 인물과 매장은 비유를 위해 지어낸 것이에요.</p>
+</div>
+
+<script>
+(()=>{
+const $=s=>document.querySelector(s);
+const cvs=$('#cv'),ctx=cvs.getContext('2d'),stage=$('#stage');
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ───────── 지도 ───────── */
+const MW=32,MH=22;
+const G=[...Array(MH)].map(()=>Array(MW).fill('.'));
+function wr(x0,y0,x1,y1){for(let x=x0;x<=x1;x++){G[y0][x]='#';G[y1][x]='#'}for(let y=y0;y<=y1;y++){G[y][x0]='#';G[y][x1]='#'}}
+function door(...ps){ps.forEach(([x,y])=>G[y][x]='D')}
+wr(0,0,MW-1,MH-1);
+wr(0,0,7,8);door([3,8],[4,8]);
+wr(7,0,13,6);door([10,6],[11,6]);
+wr(13,0,19,6);door([16,6],[17,6]);
+wr(19,0,25,6);door([22,6],[23,6]);
+wr(25,0,31,8);door([27,8],[28,8]);
+wr(0,10,8,18);door([8,13],[8,14]);
+wr(23,10,31,18);door([23,13],[23,14]);
+for(let x=14;x<=17;x++)G[21][x]='x';
+
+const ZONES=[
+  {x0:1,y0:1,x1:6,y1:7,c:['#DCD6EA','#D2CBE3'],name:'기계실'},
+  {x0:8,y0:1,x1:12,y1:5,c:['#FBE6C6','#F5DBB4'],name:'할일 문구점'},
+  {x0:14,y0:1,x1:18,y1:5,c:['#D6EEDD','#C9E6D1'],name:'위키 서점'},
+  {x0:20,y0:1,x1:24,y1:5,c:['#DBE2F6','#CED7F1'],name:'코드 창고'},
+  {x0:26,y0:1,x1:30,y1:7,c:['#D3E5F2','#C6DCEC'],name:'설계실'},
+  {x0:1,y0:11,x1:7,y1:17,c:['#F6DAD4','#EFCDC6'],name:'입점 신청 창구'},
+  {x0:24,y0:11,x1:30,y1:17,c:['#D1D8E8','#C4CDE0'],name:'관제실'},
+];
+function zoneAt(x,y){return ZONES.find(z=>x>=z.x0&&x<=z.x1&&y>=z.y0&&y<=z.y1)}
+
+const F=[];
+function furn(x,y,w,h,kind,o={}){F.push({x,y,w,h,kind,...o});if(!o.walk)for(let j=y;j<y+h;j++)for(let i=x;i<x+w;i++)G[j][i]='f'}
+furn(9,3,3,1,'counter',{c:'#D89A4E'});furn(15,3,3,1,'counter',{c:'#56AE78'});furn(21,3,3,1,'counter',{c:'#6E86D4'});
+[[8,1],[12,1],[14,1],[18,1],[20,1],[24,1]].forEach(([x,y])=>furn(x,y,1,1,'shelf'));
+furn(1,1,3,2,'machine');furn(6,1,1,2,'pipes');
+furn(27,2,3,2,'blueprint');
+furn(2,13,3,1,'counter',{c:'#D9534F',label:'창구'});furn(6,11,1,1,'queuebox');furn(1,16,2,1,'ledger');furn(5,16,1,1,'robot');
+furn(25,11,5,1,'monitors');furn(26,15,3,1,'console');
+furn(13,9,6,1,'desk');
+furn(13,13,6,2,'stage',{walk:true});
+furn(10,19,4,1,'gate');furn(18,19,4,1,'gate');
+furn(9,9,1,1,'plant');furn(22,9,1,1,'plant');furn(1,20,1,1,'plant');furn(30,20,1,1,'plant');
+
+const NPCS=[
+  {id:'minji',x:9.5,y:15.5,name:'손님 민지',color:'#E8604F',ch:0},
+  {id:'keeper1',x:10.5,y:2.3,name:'문구점 사장',color:'#D08A3C'},
+  {id:'keeper2',x:16.5,y:2.3,name:'서점 사장',color:'#3E9E66'},
+  {id:'keeper3',x:22.5,y:2.3,name:'창고 사장',color:'#5A72C8'},
+  {id:'envoy',x:15.5,y:8.3,name:'안내원 엔보이',color:'#3F8FD8',ch:1},
+  {id:'broker',x:3.5,y:12.2,name:'창구 직원 브로',color:'#C9443F',ch:2},
+  {id:'sov',x:27.5,y:12.6,name:'관제실장 소버린',color:'#6B5BD2',ch:3},
+  {id:'arch',x:28.5,y:5.5,name:'설계 팀장',color:'#2A86AE',ch:4},
+  {id:'guard',x:12.5,y:17.6,name:'경비대장',color:'#34466B',ch:5},
+  {id:'mech',x:3.5,y:4.6,name:'정비사 할머니',color:'#8E6FB5',ch:6},
+  {id:'senior',x:15.5,y:13.7,name:'구름 선배',color:'#23A585',ch:7},
+];
+const npcTile=new Set(NPCS.map(n=>`${Math.floor(n.x)},${Math.floor(n.y)}`));
+const SPK={'구름 선배':'#23A585','안내':'#56607F'};NPCS.forEach(n=>SPK[n.name]=n.color);
+
+/* ───────── 저장 상태 ───────── */
+const KEY='gureum-mall-v1';
+let S={prog:0,c0:0,terms:[],x:15.5,y:20.3};
+function load(){try{const d=JSON.parse(localStorage.getItem(KEY)||'null');if(d)S={...S,...d}}catch(e){}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify({...S,x:P.x,y:P.y}))}catch(e){}}
+load();
+const P={x:S.x,y:S.y,dir:'up',moving:false,t:0};
+
+/* ───────── 용어 도감 ───────── */
+const TERMS={
+ client:['클라이언트','손님 민지','요청을 보내는 쪽. 내 폰 앱, 웹 브라우저.',''],
+ server:['서버','매장','요청을 받아 응답을 돌려주는 컴퓨터나 프로그램.',''],
+ reqres:['요청 · 응답','쪽지와 봉투','클라이언트가 보내는 부탁(요청)과 서버가 돌려주는 결과(응답).',''],
+ backend:['백엔드','손님 눈에 안 보이는 매장 안쪽','화면 뒤에서 데이터를 처리하고 저장하는 부분. 손님이 보는 쪽은 프론트엔드.',''],
+ proxy:['프록시','안내원','클라이언트와 서버 사이에서 요청을 대신 전달하는 중간 프로그램.','09:59'],
+ routing:['라우팅','어느 매장으로 보낼지 정하기','요청의 주소 등을 보고 목적지를 고르는 규칙.','23:13'],
+ lb:['로드밸런서','계산대마다 손님 나눠 주기','여러 서버에 요청을 골고루 나눠서 한곳이 터지지 않게 한다.','09:59'],
+ envoy:['Envoy','안내원 엔보이','Lyft가 만든 오픈소스 프록시. 실행 중에 설정을 바꿀 수 있다.','10:26'],
+ dynamic:['동적 설정','일하면서 지침서 갈아 끼우기','재시작 없이 실행 중에 설정을 바꾸는 것.','11:02'],
+ api:['API (FastAPI)','입점 신청 창구','프로그램끼리 정해진 양식으로 요청을 주고받는 창구. FastAPI는 파이썬으로 API를 만드는 도구.','04:57'],
+ queue:['큐 (SQS)','대기함','먼저 들어온 작업부터 차례로 꺼내 처리하는 줄. SQS는 아마존의 큐 서비스.','08:21'],
+ worker:['워커','뒤편 로봇 직원','큐에서 작업을 꺼내 오래 걸리는 일을 처리하는 프로그램.','08:28'],
+ db:['데이터베이스 (DynamoDB)','장부','데이터를 저장하고 꺼내 보는 곳. DynamoDB는 아마존의 데이터베이스.','08:02'],
+ polling:['폴링','"됐어요?" 계속 물어보기','결과가 나왔는지 주기적으로 확인하는 방식.','09:01'],
+ async:['비동기','카페 진동벨','요청하고 기다리는 동안 다른 일을 하다가 나중에 결과를 받는 방식.','08:53'],
+ cp:['컨트롤 플레인','관제실','실제로 손님(트래픽)을 처리하는 프록시들(데이터 플레인)에게 설정을 내려보내는 두뇌.','11:30'],
+ template:['템플릿 + 컨텍스트','빈칸 양식 + 채울 정보','틀은 그대로 두고 데이터만 바꿔 결과물을 찍어내는 방식.','12:11'],
+ validation:['검증','주소와 매장 짝 확인','잘못된 입력이 시스템에 들어가기 전에 막는 것.','23:57'],
+ sovereign:['Sovereign','관제실장 소버린','영상 주인공이 만든 Envoy 컨트롤 플레인. 오픈소스로 공개했다.','11:52'],
+ cloud:['클라우드 (AWS)','건물 임대 회사','남의 데이터센터 컴퓨터를 빌려 쓰는 것. AWS는 아마존의 클라우드.','15:11'],
+ region:['리전','도시','클라우드 데이터센터가 있는 지역. 영상에선 약 13개.','17:14'],
+ iac:['IaC (CloudFormation)','설계도','서버와 네트워크를 코드로 적어 두고 자동으로 만드는 방식.','15:08'],
+ ami:['AMI (Packer · SaltStack)','붕어빵 틀 표준 세트','필요한 프로그램이 미리 깔린 서버 이미지. Packer로 굽고, SaltStack으로 무엇을 깔지 정한다.','17:30'],
+ autoscale:['오토스케일링','손님 많으면 데스크 자동 추가','부하에 따라 서버 수를 자동으로 늘리고 줄이는 것.','15:58'],
+ sidecar:['사이드카','안내데스크 옆 전문 부스','본 프로그램 옆에 붙어서 한 가지 기능을 맡는 작은 프로그램.','29:44'],
+ authn:['인증','명찰 확인: 너 누구야?','사용자가 누구인지 확인하는 것. 영상 주인공이 Rust로 만든 부스.','30:05'],
+ authz:['인가','자격 확인: 여기 들어가도 돼?','확인된 사용자가 그 일을 해도 되는지 판단하는 것.','30:13'],
+ ratelimit:['레이트 리밋','너무 자주 오면 잠깐 대기','일정 시간 동안 받을 수 있는 요청 수를 제한하는 것.','30:15'],
+ ddos:['DDoS · CloudFront','가짜 손님 떼 · 바깥 검문소','대량의 가짜 요청으로 서비스를 마비시키는 공격. 앞단의 CloudFront가 막았다.','28:17'],
+ log:['액세스 로그','출입 기록부','누가 언제 무엇을 요청했는지 남기는 기록.','29:03'],
+ maint:['유지보수','짓기보다 어려운 매일의 수리','만든 뒤에도 계속 고치고 바꿀 수 있게 관리하는 일.','32:10'],
+ oncall:['온콜','비상 당번','장애가 나면 바로 대응하는 담당자.','32:50'],
+ churn:['Churn','자꾸 손대는 구역','코드가 반복해서 바뀌는 곳. 복잡도가 커질 거라는 신호.','34:15'],
+ coupling:['결합 (Coupling)','얽힌 전선','한 곳을 바꾸면 다른 곳이 영향받는 얽힘.','35:14'],
+};
+
+/* ───────── 챕터 대본 ───────── */
+const CH_LABEL=['요청과 응답','프록시','신청 창구','관제실','설계실','보안 게이트','유지보수','졸업'];
+const C0_START=[
+ {s:'손님 민지',t:'앗, 새로 온 매니저님이죠? 부탁 하나만 할게요!'},
+ {s:'손님 민지',t:'위쪽 <b>할일 문구점</b>에 가서 제 "할일 목록"을 받아다 줄래요? 이 쪽지만 보여 주면 돼요.'},
+ {s:'안내',t:'<b>요청 쪽지</b>를 받았다. 위쪽 할일 문구점 사장님에게 가져가자.'},
+];
+const C0_KEEPER=[
+ {s:'문구점 사장',t:'민지 손님 쪽지네요. "할일 목록 주세요"라… 잠깐만요, 안쪽 장부 좀 볼게요.'},
+ {s:'문구점 사장',t:'여기 있어요! 봉투에 담았으니 민지 손님께 전해 주세요.'},
+ {s:'안내',t:'<b>응답 봉투</b>를 받았다. 광장에 있는 민지에게 돌아가자.'},
+];
+const CH=[];
+CH[0]=[
+ {s:'손님 민지',t:'와, 제 할일 목록이다! 고마워요!'},
+ {s:'구름 선배',t:'잘했어, 신입! 방금 네가 뛰어다닌 일이 인터넷에서 1초에 수백만 번씩 일어나.'},
+ {s:'구름 선배',t:'민지처럼 뭔가를 달라고 하는 쪽을 <b>클라이언트</b>라고 해. 네 폰에 깔린 앱이나 브라우저가 바로 이 역할이야.'},
+ {s:'구름 선배',t:'문구점처럼 요청을 받아서 답을 돌려주는 쪽은 <b>서버</b>야.'},
+ {s:'구름 선배',t:'쪽지는 <b>요청</b>, 봉투는 <b>응답</b>. 인터넷은 결국 요청과 응답을 주고받는 일이야.'},
+ {s:'구름 선배',t:'사장님이 "안쪽 장부 좀 볼게요" 했지? 손님 눈에 안 보이는 매장 안쪽 일을 통틀어 <b>백엔드</b>라고 해. 손님이 보는 간판과 진열대는 프론트엔드고.'},
+ {term:['client','server','reqres','backend']},
+ {quiz:{q:'유튜브 앱에서 영상을 누르면, 내 폰의 유튜브 앱은 무슨 역할일까?',o:['클라이언트','서버','데이터베이스'],a:0,e:'맞아! 내 폰 앱이 "이 영상 주세요" 하고 요청하는 쪽이니까 클라이언트야.'}},
+ {quiz:{q:'민지가 받은 "할일 목록 봉투"는 뭐였지?',o:['요청','응답'],a:1,e:'정답. 서버가 돌려준 결과물이니까 응답이야.'}},
+ {s:'구름 선배',t:'영상 속 회사 아틀라시안은 Jira, Confluence, Bitbucket 같은 매장이 수천 개 있는 초대형 쇼핑몰이라고 생각하면 돼.'},
+ {s:'구름 선배',t:'그런데 매장이 수천 개면 손님이 매장을 하나하나 찾아다닐 수 있을까? 가운데 <b>안내데스크</b>로 가 보자.'},
+];
+CH[1]=[
+ {s:'안내원 엔보이',t:'어서 와. 난 입구 안내원 엔보이야. 이 쇼핑몰에 오는 손님은 전부 나를 먼저 거쳐.'},
+ {s:'구름 선배',t:'손님과 매장 사이에서 대신 전달해 주는 중간 직원을 <b>프록시</b>라고 해. 손님은 매장 위치를 몰라도 돼. 엔보이한테만 말하면 되거든.'},
+ {s:'안내원 엔보이',t:'백 번 듣는 것보다 한 번 해 보는 게 낫지. 잠깐 내 자리에 앉아 봐.'},
+ {act:'route'},
+ {s:'구름 선배',t:'손님 말이나 주소(/todo 같은 것)를 보고 어느 매장으로 보낼지 정하는 규칙, 그게 <b>라우팅</b>이야.'},
+ {act:'balance'},
+ {s:'구름 선배',t:'한 매장의 여러 계산대에 손님을 골고루 나눠 주는 게 <b>로드밸런싱</b>이야. 한 계산대만 터지지 않게 하는 거지. 이 일을 하는 게 <b>로드밸런서</b>고.'},
+ {term:['proxy','routing','lb']},
+ {s:'구름 선배',t:'이제 영상 얘기. 아틀라시안은 원래 비싼 회사에서 안내원을 빌려 썼어. 쓰는 값(라이선스 비용)이 꽤 나갔지.'},
+ {s:'구름 선배',t:'그래서 누구나 공짜로 쓰는 오픈소스 안내원 <b>Envoy</b>로 바꾸기로 했어. Nginx라는 유명한 도구의 요즘 버전쯤으로 생각하면 돼. (영상 09:59)'},
+ {s:'안내원 엔보이',t:'나한텐 특별한 능력이 있어. 일하는 도중에 안내 지침서를 바꿔 끼울 수 있거든. 쉬지도 않고, 문도 안 닫고.'},
+ {s:'구름 선배',t:'이걸 <b>동적 설정</b>이라고 해. 3강 관제실의 핵심이니까 꼭 기억해 둬.'},
+ {term:['envoy','dynamic']},
+ {quiz:{q:'로드밸런서가 하는 일로 가장 맞는 건?',o:['손님을 여러 계산대에 골고루 나눠 보낸다','매장 물건 가격을 정한다','손님 휴대폰을 충전해 준다'],a:0,e:'맞아. 한곳에 몰리지 않게 나눠 주는 게 로드밸런서야.'}},
+ {quiz:{q:'아틀라시안이 기존 안내원을 Envoy로 바꾼 이유는?',o:['비싼 라이선스 비용을 줄이고, 개발자가 직접 설정할 수 있게 하려고','Envoy가 더 귀여워서','손님 수를 줄이려고'],a:0,e:'정답. 돈도 아끼고, 개발자들이 스스로 설정하는 구조를 만들고 싶었어.'}},
+ {s:'구름 선배',t:'좋아! 그런데 새 매장이 생기면 엔보이한테 어떻게 알려 줄까? 왼쪽 <b>입점 신청 창구</b>로 가 보자.'},
+];
+CH[2]=[
+ {s:'창구 직원 브로',t:'여긴 입점 신청 창구예요. 새 매장 사장님들이 "우리 가게도 안내데스크에 등록해 주세요!" 하고 신청하는 곳이죠.'},
+ {s:'구름 선배',t:'예전엔 사장님이 인프라팀에 부탁하고 한참 기다려야 했어. 그래서 사장님이 직접 신청하는 <b>셀프서비스</b> 창구를 만든 거야.'},
+ {s:'구름 선배',t:'영상 주인공은 면접 때 "1년 뒤 제가 뭘 해내면 뽑길 잘했다고 하실까요?" 하고 물었대. 돌아온 대답이 이 창구였고, 입사하자마자 이걸 만들었어. (영상 04:16)'},
+ {s:'구름 선배',t:'정해진 양식으로 요청을 받는 창구를 <b>API</b>라고 해. 프로그램끼리 대화하는 창구야. 그는 파이썬 도구 <b>FastAPI</b>로 이 창구를 만들었어.'},
+ {s:'창구 직원 브로',t:'그런데 등록 작업이 오래 걸려요. 간판도 달아야 하고(DNS), 바깥 경비도 배치해야 하고(CloudFront)…'},
+ {s:'창구 직원 브로',t:'제가 그걸 다 직접 하면 뒤에 줄이 끝도 없이 늘어나겠죠? 그래서 번호표만 드리고, 작업 쪽지는 저 <b>대기함</b>에 넣어요.'},
+ {s:'구름 선배',t:'먼저 들어온 쪽지부터 차례로 꺼내 쓰는 대기함을 <b>큐</b>라고 해. 영상에선 아마존의 <b>SQS</b>를 썼어.'},
+ {s:'구름 선배',t:'뒤쪽 로봇 직원이 대기함에서 쪽지를 하나씩 꺼내 처리해. 이런 뒤편 일꾼을 <b>워커</b>라고 불러.'},
+ {s:'구름 선배',t:'일이 끝나면 워커가 장부에 "완료"라고 적어. 이 장부가 <b>데이터베이스</b>고, 영상에선 <b>DynamoDB</b>를 썼어.'},
+ {s:'구름 선배',t:'사장님은 가끔 창구에 와서 "됐어요?" 하고 물어봐. 이걸 <b>폴링</b>이라고 해. 창구 직원은 장부를 보고 대답하지.'},
+ {s:'구름 선배',t:'카페 진동벨 생각나지? 주문하고 딴 거 하다가 벨이 울리면 받으러 가는 방식. 이게 <b>비동기</b> 처리야.'},
+ {term:['api','queue','worker','db','polling','async']},
+ {act:'order'},
+ {quiz:{q:'창구 직원이 오래 걸리는 일을 직접 하지 않고 대기함에 넣는 이유는?',o:['창구 줄이 막히지 않게, 무거운 일은 뒤에서 따로 처리하려고','일하기 싫어서','대기함이 예뻐서'],a:0,e:'정답! 창구는 빨리 받고, 무거운 일은 워커가 뒤에서. 이게 비동기 구조야.'}},
+ {quiz:{q:'카페 진동벨 방식과 가장 비슷한 건?',o:['비동기 처리','동기 처리 (커피 나올 때까지 계산대 앞에 서 있기)'],a:0,e:'맞아. 기다리는 동안 다른 걸 할 수 있으면 비동기야.'}},
+ {s:'구름 선배',t:'장부에 "위키 서점 등록 완료"라고 적혔어. 그럼 안내원 엔보이는 이걸 어떻게 알까? 오른쪽 <b>관제실</b>로 가 보자.'},
+];
+CH[3]=[
+ {s:'관제실장 소버린',t:'난 관제실장 소버린. 전 세계 안내데스크 2,000곳에 "지금은 이렇게 안내해" 하고 지침을 내려보내.'},
+ {s:'구름 선배',t:'손님을 직접 상대하는 안내원들을 <b>데이터 플레인</b>, 그들에게 지시를 내리는 두뇌를 <b>컨트롤 플레인</b>이라고 해.'},
+ {s:'관제실장 소버린',t:'지침서를 매번 손으로 2,000장씩 쓸 순 없잖아? 그래서 빈칸 뚫린 양식을 써.'},
+ {s:'구름 선배',t:'빈칸 양식이 <b>템플릿</b>, 빈칸에 채울 정보가 <b>컨텍스트</b>야. "○○야 생일 축하해" 카드에 이름만 바꿔 넣는 거랑 같아.'},
+ {s:'관제실장 소버린',t:'컨텍스트는 아까 그 장부(DB)나 창고 파일(S3)에서 주기적으로 읽어 와. 장부가 바뀌면 지침도 알아서 바뀌지.'},
+ {act:'template'},
+ {s:'구름 선배',t:'봤지? 설정을 바꿨는데 안내원을 재시작하지 않았어. 이게 1강에서 말한 엔보이의 능력, 동적 설정이야.'},
+ {s:'구름 선배',t:'주소랑 매장이 안 맞으면 막혔지? 영상 주인공은 이 <b>검증</b>에 가장 공을 많이 들였대. 어떤 주소든 아무 매장으로나 보낼 수 있는 구조라서 실수 하나가 크게 번지거든. (영상 23:57)'},
+ {s:'구름 선배',t:'그가 만든 이 관제실 프로그램 이름이 바로 <b>Sovereign</b>이야. 누구나 볼 수 있게 오픈소스로 공개했어. (영상 11:52)'},
+ {term:['cp','template','validation','sovereign']},
+ {quiz:{q:'관제실(Sovereign)이 하는 일은?',o:['안내원들에게 최신 안내 지침을 만들어 내려보낸다','손님에게 직접 물건을 판다','건물을 짓는다'],a:0,e:'정답. 손님을 직접 상대하진 않고, 지시만 내리는 두뇌야.'}},
+ {quiz:{q:'"템플릿 + 컨텍스트"를 생활 속에서 찾으면?',o:['이름 칸만 바꿔 쓰는 생일 카드 양식','매번 새로 그리는 그림','냉장고'],a:0,e:'맞아. 양식은 그대로 두고 채우는 정보만 바뀌어.'}},
+ {s:'구름 선배',t:'그럼 안내데스크 2,000개는 대체 누가 세웠을까? 오른쪽 위 <b>설계실</b>로!'},
+];
+CH[4]=[
+ {s:'설계 팀장',t:'안내데스크를 전 세계 13개 도시에 2,000개 세워야 해. 벽돌을 손으로 하나하나 쌓을 거야? 절대 안 되지.'},
+ {s:'구름 선배',t:'먼저, 건물은 직접 안 지어. <b>AWS</b>라는 거대한 건물 임대 회사에서 빌려. 남의 컴퓨터를 빌려 쓰는 것, 그게 <b>클라우드</b>야.'},
+ {s:'구름 선배',t:'<b>리전</b>은 도시라고 생각해. 서울, 도쿄, 시드니… 손님과 가까운 도시에 데스크가 있어야 빨라.'},
+ {s:'설계 팀장',t:'"이런 건물을 이렇게 지어 줘"를 글로 적은 설계도를 AWS에 주면 그대로 지어 줘. 우린 <b>CloudFormation</b>이라는 설계도를 썼어.'},
+ {s:'구름 선배',t:'인프라를 손 대신 코드(글)로 만드는 걸 <b>IaC</b>(코드로 인프라 만들기)라고 해. 설계도 하나로 13개 도시에 똑같이 지을 수 있지.'},
+ {s:'설계 팀장',t:'건물만 있으면 안 돼. 데스크마다 똑같은 물건이 들어가야 해. 그래서 <b>표준 세트</b>를 미리 구워 둬.'},
+ {s:'구름 선배',t:'붕어빵 틀 같은 이 표준 세트가 <b>AMI</b>(서버 이미지)야. 틀을 굽는 기계가 <b>Packer</b>, 무엇을 넣을지 적은 체크리스트가 <b>SaltStack</b>이고. (영상 17:30)'},
+ {act:'kit'},
+ {s:'구름 선배',t:'손님이 몰리면 데스크를 자동으로 더 세우는 장치도 있어. <b>오토스케일링</b>이라고 해.'},
+ {s:'구름 선배',t:'영상 주인공 말로는 창구, 관제실, 설계실까지 만드는 데 입사 후 첫 2년이 걸렸대. 그 뒤로 몇 년에 걸쳐 Jira, Confluence 같은 큰 매장들을 이 안내 시스템으로 옮겼고.'},
+ {term:['cloud','region','iac','ami','autoscale']},
+ {quiz:{q:'AMI(서버 이미지)를 비유하면?',o:['붕어빵 틀. 똑같은 데스크를 계속 찍어낼 수 있다','매장 영수증','손님 명찰'],a:0,e:'정답. 한 번 잘 만든 틀로 2,000개를 똑같이 찍어내.'}},
+ {quiz:{q:'설계도(CloudFormation)를 코드로 적어 두면 좋은 점은?',o:['같은 건물을 여러 도시에 똑같이, 실수 없이 지을 수 있다','건물이 예뻐진다','전기가 안 든다'],a:0,e:'맞아. 반복 작업을 사람 손 대신 코드가 해.'}},
+ {s:'구름 선배',t:'건물도 섰고 안내원도 있어. 이제 수상한 손님을 막아야지. 아래쪽 <b>보안 게이트</b>로!'},
+];
+CH[5]=[
+ {s:'경비대장',t:'매장이 수천 개야. 매장마다 경비원을 따로 뽑으면 돈이 얼마나 들겠어?'},
+ {s:'구름 선배',t:'그래서 입구에서 한 번에 처리해. 손님이 매장에 닿기 전에 걸러내면 돈도 시간도 아껴. 영상의 핵심 중 하나야. (영상 25:13)'},
+ {s:'경비대장',t:'안내데스크 옆에 전문 부스들이 붙어 있어. 안내원은 헷갈리면 옆 부스에 물어보지.'},
+ {s:'구름 선배',t:'오토바이 옆에 붙은 칸처럼, 본체 옆에 붙어서 일하는 작은 프로그램을 <b>사이드카</b>라고 해. 팀마다 자기 부스를 만들어 붙일 수 있어.'},
+ {act:'gate'},
+ {s:'구름 선배',t:'"너 누구야?"(명찰 확인)가 <b>인증</b>, "넌 여기 들어갈 자격이 있어?"가 <b>인가</b>야. 헷갈리기 쉬우니까 꼭 구분해.'},
+ {s:'구름 선배',t:'인증 부스는 영상 주인공이 직접 만들었어. <b>Rust</b>라는 빠르고 안전한 언어로. 인가 부스랑 속도 제한 부스는 다른 팀이 만들었고.'},
+ {s:'구름 선배',t:'너무 자주 오는 손님을 잠깐 막는 게 <b>레이트 리밋</b>. 가짜 손님 수만 명이 한꺼번에 몰려와 입구를 막아 버리는 공격이 <b>DDoS</b>야.'},
+ {s:'경비대장',t:'DDoS는 쇼핑몰 바깥 검문소인 <b>CloudFront</b>에서 미리 막아. 출입 기록(<b>액세스 로그</b>)은 안내원 엔보이가 알아서 적고.'},
+ {s:'구름 선배',t:'하나 더. 예전엔 매장이 실수로 바깥에 문을 열어 둘 수도 있었어. 이제는 "바깥 손님 받겠습니다" 하고 명시적으로 신청해야만 열 수 있게 바꿨지. (영상 21:58)'},
+ {term:['sidecar','authn','authz','ratelimit','ddos','log']},
+ {quiz:{q:'"로그인한 사람이 누구인지 확인"하는 건?',o:['인증','인가','레이트 리밋'],a:0,e:'정답. 누구냐를 확인하는 게 인증, 무엇을 해도 되느냐가 인가야.'}},
+ {quiz:{q:'보안을 매장마다 하지 않고 입구에서 한 번에 처리하는 이유는?',o:['매장 수천 곳이 각자 만들면 돈과 시간이 엄청 낭비되니까','입구가 넓어서','매장 사장님들이 경비원을 싫어해서'],a:0,e:'맞아. 한 번 잘 만들어서 모두가 같이 쓰는 게 플랫폼의 힘이야.'}},
+ {s:'구름 선배',t:'시스템 구경은 끝! 영상 주인공이 제일 하고 싶었던 얘기가 왼쪽 위 <b>기계실</b>에 있어.'},
+];
+CH[6]=[
+ {s:'정비사 할머니',t:'어서 오게. 짓는 건 한 번이지만, 고치는 건 매일이란다.'},
+ {s:'구름 선배',t:'영상 주인공은 8년 동안 배운 것 중 하나로 <b>유지보수</b>를 꼽았어. 이미 만든 시스템을 계속 고치면서 굴러가게 하는 일이야. (영상 32:10)'},
+ {s:'정비사 할머니',t:'처음엔 설명서도 쓰고 새 직원도 가르치지. 고장 나면 어디를 봐야 하는지 알려 줘야 하거든.'},
+ {s:'구름 선배',t:'문제가 터지면 당장 달려가는 당번을 <b>온콜</b>이라고 해. 당번은 이런 상황을 미리 알고 있어야 해.'},
+ {s:'구름 선배',t:'"AWS가 고장 나서 장부가 안 열리면?" "대기함이 멈추면?" "지침서 문법은 맞는데 손님을 엉뚱한 데로 보내면?"'},
+ {s:'정비사 할머니',t:'세월이 가면 사람이 들고 나지. 새로 온 사람은 "이거 내가 더 좋게 고칠래!" 하고 손을 대. 그러다 보면 자꾸 손대는 구역이 생겨.'},
+ {s:'구름 선배',t:'자꾸 고쳐지는 걸 <b>Churn</b>이라고 해. 그런 곳은 앞으로 점점 커지고 복잡해질 거라는 신호야. 미리 손써야 해.'},
+ {s:'구름 선배',t:'고칠수록 부품끼리 얽혀서, 한 곳을 고치면 다른 곳이 터지기도 해. 이렇게 얽힌 걸 <b>결합(Coupling)</b>이라고 불러.'},
+ {s:'정비사 할머니',t:'요즘 AI로 뚝딱 만든 앱들 있지? 만든 사람이 속을 잘 모르면 이런 문제가 나중에 한꺼번에 찾아올 게야.'},
+ {s:'구름 선배',t:'그가 한 말이야. "만드는 건 쉽다. 계속 바꿀 수 있게 유지하는 게 어렵다." 영상에선 30초쯤 지나가는 얘기지만 많은 사람이 공감했어. (영상 34:47)'},
+ {s:'구름 선배',t:'기술 말고도 솔직한 얘기를 했어. 성격이 안 맞는 동료와 부딪혀서 성과가 떨어진 적이 있고, 인턴 멘토링은 어려웠다고.'},
+ {term:['maint','oncall','churn','coupling']},
+ {quiz:{q:'Churn이 많은 코드 구역이 보내는 신호는?',o:['앞으로 점점 커지고 복잡해질 수 있으니 손봐야 한다','완벽하게 잘 만들어졌다','아무도 안 쓴다'],a:0,e:'정답. 자주 바뀌는 곳에 문제가 모여.'}},
+ {quiz:{q:'영상 주인공이 바이브코딩(AI로 빠르게 만든 앱)에 대해 걱정한 점은?',o:['만든 사람이 속을 모르면 나중에 유지보수 문제가 몰려온다','AI는 코드를 못 쓴다','앱이 너무 느리다'],a:0,e:'맞아. 문제는 처음이 아니라 시간이 지나서 드러나.'}},
+ {s:'구름 선배',t:'전부 봤어! 가운데 <b>졸업 무대</b>로 와. 마지막 시험이 있어.'},
+];
+CH[7]=[
+ {s:'구름 선배',t:'수고했어! 마지막으로 쇼핑몰 비유를 진짜 용어랑 짝지어 봐.'},
+ {act:'match'},
+ {s:'구름 선배',t:'이제 그림 한 장이면 영상 40분이 다 설명돼.'},
+ {act:'final'},
+ {s:'구름 선배',t:'축하해, 수습 딱지 뗐어! 원본 영상을 다시 보면 아까보다 훨씬 많이 들릴 거야. 복습하고 싶으면 아무 NPC한테나 다시 말 걸어.'},
+];
+const FLAVOR={
+ keeper1:'어서 오세요, 할일 문구점입니다. 오늘 할 일 목록은 여기서 챙겨 가세요.',
+ keeper2:'위키 서점이에요. 회사 문서는 다 여기 있죠. (영상의 Confluence 역할)',
+ keeper3:'코드 창고예요. 개발자들이 만든 코드를 보관해요. (영상의 Bitbucket 역할)',
+};
+
+/* ───────── 진행 상태 도우미 ───────── */
+function objective(){
+  if(S.prog===0) return [['광장의 손님 민지에게 말 걸기','minji'],['할일 문구점 사장님에게 쪽지 전달하기','keeper1'],['광장의 민지에게 봉투 돌려주기','minji']][S.c0];
+  return [null,['가운데 안내데스크의 엔보이에게 가기','envoy'],['왼쪽 입점 신청 창구의 브로에게 가기','broker'],['오른쪽 관제실의 소버린에게 가기','sov'],['오른쪽 위 설계실의 설계 팀장에게 가기','arch'],['아래쪽 보안 게이트의 경비대장에게 가기','guard'],['왼쪽 위 기계실의 정비사 할머니에게 가기','mech'],['가운데 졸업 무대의 구름 선배에게 가기','senior'],['졸업! 복습하려면 아무 NPC에게나 다시 말 걸기',null]][S.prog];
+}
+function hud(){
+  $('#qtxt').textContent=objective()[0];
+  $('#pips').innerHTML=CH_LABEL.map((l,i)=>`<span class="pip ${i<S.prog?'done':i===S.prog?'now':''}" title="${i}강 ${l}"></span>`).join('');
+}
+
+/* ───────── 입력 ───────── */
+const keys={up:false,down:false,left:false,right:false};
+const KMAP={ArrowUp:'up',KeyW:'up',ArrowDown:'down',KeyS:'down',ArrowLeft:'left',KeyA:'left',ArrowRight:'right',KeyD:'right'};
+let started=false,busy=false,advance=null,optKeys=null;
+addEventListener('keydown',e=>{
+  if(!started) return;
+  if(!$('#modal').hidden){ if(e.code==='Escape'&&glossOpen) closeGloss(); return; }
+  if(e.code==='KeyT'){e.preventDefault();openGloss();return}
+  if(busy){
+    if(optKeys&&/^Digit[1-9]$/.test(e.code)){e.preventDefault();optKeys(+e.code.slice(5)-1);return}
+    if(['Space','Enter','KeyE'].includes(e.code)){e.preventDefault();advance&&advance();}
+    return;
+  }
+  if(KMAP[e.code]){e.preventDefault();keys[KMAP[e.code]]=true}
+  if(['Space','Enter','KeyE'].includes(e.code)){e.preventDefault();tryInteract()}
+});
+addEventListener('keyup',e=>{if(KMAP[e.code])keys[KMAP[e.code]]=false});
+addEventListener('blur',()=>{for(const k in keys)keys[k]=false});
+document.querySelectorAll('.pb[data-k]').forEach(b=>{
+  const k=b.dataset.k,on=e=>{e.preventDefault();keys[k]=true;b.classList.add('hold')},off=()=>{keys[k]=false;b.classList.remove('hold')};
+  b.addEventListener('pointerdown',on);['pointerup','pointerleave','pointercancel'].forEach(t=>b.addEventListener(t,off));
+});
+$('#bA').addEventListener('click',()=>{if(!started||!$('#modal').hidden)return;if(busy){advance&&advance()}else tryInteract()});
+
+/* ───────── 이동과 충돌 ───────── */
+function solid(tx,ty){
+  if(tx<0||ty<0||tx>=MW||ty>=MH) return true;
+  const t=G[ty][tx];
+  return t==='#'||t==='f'||t==='x'||npcTile.has(`${tx},${ty}`);
+}
+const HB=0.3;
+function blocked(x,y){
+  return solid(Math.floor(x-HB),Math.floor(y-HB))||solid(Math.floor(x+HB),Math.floor(y-HB))||solid(Math.floor(x-HB),Math.floor(y+HB))||solid(Math.floor(x+HB),Math.floor(y+HB));
+}
+function update(dt){
+  if(busy||!started||!$('#modal').hidden){P.moving=false;return}
+  let dx=(keys.right?1:0)-(keys.left?1:0),dy=(keys.down?1:0)-(keys.up?1:0);
+  P.moving=!!(dx||dy);
+  if(!P.moving) return;
+  if(dx&&dy){dx*=.7071;dy*=.7071}
+  if(Math.abs(dx)>Math.abs(dy)) P.dir=dx>0?'right':'left'; else P.dir=dy>0?'down':'up';
+  const sp=4.4*dt;
+  if(!blocked(P.x+dx*sp,P.y)) P.x+=dx*sp;
+  if(!blocked(P.x,P.y+dy*sp)) P.y+=dy*sp;
+  P.t+=dt;
+}
+function nearNPC(){
+  let best=null,bd=2.45;
+  for(const n of NPCS){const d=Math.hypot(n.x-P.x,n.y-P.y);if(d<bd){bd=d;best=n}}
+  return best;
+}
+
+/* ───────── 대화창 ───────── */
+const dlg=$('#dlg');
+function fmt(t){return t}
+function say(who,text){
+  return new Promise(res=>{
+    dlg.hidden=false;
+    dlg.innerHTML=`<span class="sp" style="background:${SPK[who]||'#56607F'}">${who}</span><div class="tx">${fmt(text)}</div><span class="more">Space · 클릭 ▼</span>`;
+    advance=()=>{advance=null;res()};
+    dlg.onclick=()=>advance&&advance();
+  });
+}
+function quiz(qz){
+  return new Promise(res=>{
+    dlg.hidden=false;
+    dlg.onclick=null;advance=null;
+    dlg.innerHTML=`<span class="sp" style="background:#1B2040">퀴즈</span><div class="tx">${qz.q}</div><div class="opts">${qz.o.map((o,i)=>`<button class="opt" type="button" data-i="${i}">${i+1}. ${o}</button>`).join('')}</div><p class="fb"></p>`;
+    const fb=dlg.querySelector('.fb'),btns=[...dlg.querySelectorAll('.opt')];
+    const pick=i=>{
+      const b=btns[i];if(!b||b.disabled)return;
+      if(i===qz.a){
+        b.classList.add('right');btns.forEach(x=>x.disabled=true);optKeys=null;
+        fb.className='fb ok';fb.innerHTML=qz.e+' <span class="meta">(Space로 계속)</span>';
+        advance=()=>{advance=null;res()};
+        setTimeout(()=>{dlg.onclick=()=>advance&&advance()},0);
+      }else{b.classList.add('wrong');b.disabled=true;fb.className='fb no';fb.textContent='음, 다시 생각해 봐!'}
+    };
+    btns.forEach((b,i)=>b.addEventListener('click',e=>{e.stopPropagation();pick(i)}));
+    optKeys=pick;
+  });
+}
+function hideDlg(){dlg.hidden=true;dlg.onclick=null;advance=null;optKeys=null}
+let toastT=0;
+function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;t.style.opacity=1;clearTimeout(toastT);toastT=setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.hidden=true,300)},2200)}
+function addTerms(ks){
+  const nw=ks.filter(k=>!S.terms.includes(k));
+  if(!nw.length) return;
+  S.terms.push(...nw);save();
+  toast(`도감에 새 단어 ${nw.length}개: ${nw.map(k=>TERMS[k][0]).join(', ')}`);
+}
+async function runScript(steps){
+  busy=true;
+  for(const st of steps){
+    if(st.s) await say(st.s,st.t);
+    else if(st.quiz) await quiz(st.quiz);
+    else if(st.act){hideDlg();await ACTS[st.act]()}
+    else if(st.term) addTerms(st.term);
+  }
+  hideDlg();busy=false;
+  for(const k in keys)keys[k]=false;
+}
+
+/* ───────── 상호작용 ───────── */
+async function tryInteract(){
+  const n=nearNPC();if(!n)return;
+  if(n.id==='keeper1'&&S.prog===0&&S.c0===1){await runScript(C0_KEEPER);S.c0=2;save();hud();return}
+  if(n.ch===undefined){await runScript([{s:n.name,t:FLAVOR[n.id]}]);return}
+  if(n.ch===0&&S.prog===0){
+    if(S.c0===0){await runScript(C0_START);S.c0=1;save();hud();return}
+    if(S.c0===1){await runScript([{s:n.name,t:'위쪽 할일 문구점 사장님한테 쪽지 보여 주면 돼요!'}]);return}
+    await finishChapter(0);return;
+  }
+  if(n.ch===S.prog){await finishChapter(n.ch);return}
+  if(n.ch>S.prog){await runScript([{s:n.name,t:`지금은 좀 바빠요. 먼저 "${objective()[0]}"부터 해 보세요!`}]);return}
+  // 이미 끝낸 챕터: 복습
+  busy=true;
+  const again=await new Promise(res=>{
+    dlg.hidden=false;dlg.onclick=null;advance=null;
+    dlg.innerHTML=`<span class="sp" style="background:${n.color}">${n.name}</span><div class="tx">${n.ch}강 "${CH_LABEL[n.ch]}"은 이미 끝냈어요. 다시 들을래요?</div><div class="opts"><button class="opt" type="button">1. 처음부터 다시 듣기</button><button class="opt" type="button">2. 괜찮아요</button></div>`;
+    const bs=dlg.querySelectorAll('.opt');
+    bs[0].onclick=e=>{e.stopPropagation();res(true)};bs[1].onclick=e=>{e.stopPropagation();res(false)};
+    optKeys=i=>{if(i<2)res(i===0)};
+  });
+  hideDlg();busy=false;
+  if(again) await runScript(CH[n.ch]);
+}
+async function finishChapter(ch){
+  await runScript(CH[ch]);
+  if(S.prog===ch){S.prog=ch+1;save();hud();toast(ch===7?'졸업 완료!':`${ch}강 "${CH_LABEL[ch]}" 완료!`)}
+}
+
+/* ───────── 활동창 ───────── */
+const modal=$('#modal');
+let glossOpen=false;
+function openModal(title,sub){modal.hidden=false;$('#mTitle').textContent=title;$('#mSub').textContent=sub||'';const b=$('#mBody');b.innerHTML='';modal.querySelector('.panel').scrollTop=0;return b}
+function closeModal(){modal.hidden=true;cvs.focus()}
+function nextBtn(b,res,label='계속하기'){
+  const bt=document.createElement('button');bt.className='primary';bt.type='button';bt.textContent=label;
+  bt.onclick=()=>{closeModal();res()};b.appendChild(bt);bt.focus();
+}
+function shuffle(a){a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+const ACTS={};
+
+ACTS.route=()=>new Promise(res=>{
+  const b=openModal('안내데스크 체험 ①: 길 안내','손님 말이나 주소를 보고 맞는 매장으로 보내 줘. 이게 라우팅이야.');
+  const stores=[['할일 문구점','/todo'],['위키 서점','/wiki'],['코드 창고','/code']];
+  const cs=[
+    {who:'지훈',say:'"오늘 할일 목록 좀 보려고요."',a:0},
+    {who:'서연',say:'주소창: <b>gureum.com/wiki/회의록</b>',a:1},
+    {who:'도윤',say:'"우리 팀 코드 올리러 왔어요."',a:2},
+    {who:'하은',say:'주소창: <b>gureum.com/todo/내일할일</b>',a:0},
+    {who:'민준',say:'"사내 문서 찾고 있어요."',a:1},
+    {who:'유나',say:'주소창: <b>gureum.com/code/게임앱</b>',a:2},
+  ];
+  b.innerHTML=`<div class="chips">${stores.map(s=>`<span class="chip"><b>${s[1]}</b> → ${s[0]}</span>`).join('')}</div><div class="cust"></div><div class="row"></div><p class="fb"></p><p class="meta"></p>`;
+  const q=s=>b.querySelector(s);let i=0;
+  function show(){
+    if(i>=cs.length){q('.cust').innerHTML='<div class="bubble">6명 모두 제대로 안내했어! 손님들은 매장이 어디 있는지 몰라도 됐지.</div>';q('.row').innerHTML='';q('.fb').textContent='';q('.meta').textContent='';nextBtn(b,res);return}
+    const c=cs[i];
+    q('.cust').innerHTML=`<div class="who">${c.who}</div><div class="bubble">${c.say}</div>`;
+    q('.meta').textContent=`손님 ${i+1} / ${cs.length}`;
+    q('.row').innerHTML=stores.map((s,k)=>`<button class="opt" type="button" data-k="${k}">${s[0]}</button>`).join('');
+    q('.row').querySelectorAll('button').forEach(bt=>bt.onclick=()=>{
+      if(+bt.dataset.k===c.a){bt.classList.add('right');q('.fb').className='fb ok';q('.fb').textContent='좋아, 정답!';i++;setTimeout(show,500)}
+      else{bt.classList.add('wrong');q('.fb').className='fb no';q('.fb').textContent=c.say.includes('주소창')?'힌트: 주소에서 / 다음 단어를 봐.':'힌트: 무엇을 하러 왔는지 봐.'}
+    });
+  }
+  show();
+});
+
+ACTS.balance=()=>new Promise(res=>{
+  const b=openModal('안내데스크 체험 ②: 계산대 나누기','할일 문구점에 손님이 몰려! 계산대 A·B·C 중 줄이 가장 짧은 곳으로 보내 줘.');
+  let qs=[3,1,2],n=0;const N=6;
+  b.innerHTML=`<div class="cust"><div class="who">손님</div><div class="bubble">"할일 문구점이요!"</div></div><div class="counters"></div><p class="fb"></p><p class="meta"></p>`;
+  const q=s=>b.querySelector(s);
+  function draw(){
+    q('.counters').innerHTML=qs.map((v,k)=>`<button class="ctr" type="button" data-k="${k}"><div class="nm">${'ABC'[k]} 계산대</div><div class="meta">대기 ${v}명</div><div class="dots">${'<span class="dot"></span>'.repeat(v)}</div></button>`).join('');
+    q('.meta').textContent=`안내한 손님 ${n} / ${N}`;
+    q('.counters').querySelectorAll('.ctr').forEach(bt=>bt.onclick=()=>pick(+bt.dataset.k));
+  }
+  function pick(k){
+    if(n>=N)return;
+    const mn=Math.min(...qs);
+    if(qs[k]!==mn){q('.fb').className='fb no';q('.fb').textContent=`${'ABC'[qs.indexOf(mn)]} 계산대가 더 한가해! 한곳에 몰리면 그 계산대가 터져.`;const el=q(`.ctr[data-k="${k}"]`);el.classList.add('shake');setTimeout(()=>el.classList.remove('shake'),500);return}
+    qs[k]++;n++;
+    const busyIdx=qs.map((v,i)=>v>0?i:-1).filter(i=>i>=0);
+    if(busyIdx.length){const r=busyIdx[Math.floor(Math.random()*busyIdx.length)];qs[r]--}
+    if(Math.random()<.6)qs[Math.floor(Math.random()*3)]++;
+    q('.fb').className='fb ok';q('.fb').textContent='좋아! 가장 한가한 계산대로 보냈어.';
+    draw();
+    if(n>=N){q('.fb').textContent='완벽해. 줄이 한쪽으로 쏠리지 않았지? 이게 로드밸런싱이야.';q('.counters').querySelectorAll('.ctr').forEach(x=>x.disabled=true);nextBtn(b,res)}
+  }
+  draw();
+});
+
+ACTS.order=()=>new Promise(res=>{
+  const b=openModal('입점 신청 순서 맞추기','위키 서점 사장님이 신청하러 왔어. 일이 벌어지는 순서대로 눌러 봐.');
+  const steps=[
+    '사장님이 창구에 신청서를 낸다 (API 요청)',
+    '창구 직원이 번호표를 주고, 작업 쪽지를 대기함에 넣는다 (SQS)',
+    '로봇 직원이 대기함에서 쪽지를 꺼낸다 (워커)',
+    '로봇이 간판 달기와 경비 배치를 한다 (DNS, CloudFront 작업)',
+    '로봇이 장부에 "완료"라고 적는다 (DynamoDB)',
+    '사장님이 "됐어요?" 묻고, 창구가 장부를 보고 "완료!"라고 답한다 (폴링)',
+  ];
+  let k=0;
+  b.innerHTML=`<div class="picked"></div><div class="steps"></div><p class="fb"></p>`;
+  const q=s=>b.querySelector(s);
+  q('.steps').innerHTML=shuffle(steps.map((t,i)=>({t,i}))).map(o=>`<button class="opt" type="button" data-i="${o.i}">${o.t}</button>`).join('');
+  q('.steps').querySelectorAll('.opt').forEach(bt=>bt.onclick=()=>{
+    if(+bt.dataset.i===k){const d=document.createElement('div');d.textContent=steps[k];q('.picked').appendChild(d);bt.remove();k++;q('.fb').className='fb ok';q('.fb').textContent='맞아!';
+      if(k===steps.length){q('.fb').textContent='완성! 창구는 금방 받고, 오래 걸리는 일은 뒤에서 처리했어.';nextBtn(b,res)}}
+    else{bt.classList.add('shake');setTimeout(()=>bt.classList.remove('shake'),500);q('.fb').className='fb no';q('.fb').textContent='그 전에 먼저 일어나는 일이 있어.'}
+  });
+});
+
+ACTS.template=()=>new Promise(res=>{
+  const b=openModal('관제실 체험: 지침 찍어내기','새 매장 "게임 오락실"(/game)이 입점했어. 장부(컨텍스트)에 새 줄을 채우고 전 세계 안내데스크에 보내 봐.');
+  const rows=[['/todo','할일 문구점',2],['/wiki','위키 서점',1],['/code','코드 창고',3]];
+  const storeOpts=['할일 문구점','위키 서점','코드 창고','게임 오락실'];
+  b.innerHTML=`
+  <p class="flowlbl">템플릿 (빈칸 양식)</p>
+  <div class="tpl">손님이 <span class="v">{주소}</span>로 오면
+  → <span class="v">{매장}</span>의 계산대 <span class="v">{개수}</span>개로 나눠 안내</div>
+  <p class="flowlbl">컨텍스트 (장부에서 읽어 온 정보)</p>
+  <div class="tw"><table class="ctx"><thead><tr><th>주소</th><th>매장</th><th>계산대</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('')}
+  <tr><td><b>/game</b></td><td><select id="tStore"><option value="">골라 줘</option>${storeOpts.map(s=>`<option>${s}</option>`).join('')}</select></td><td><select id="tN">${[1,2,3,4].map(v=>`<option${v===2?' selected':''}>${v}</option>`).join('')}</select></td></tr>
+  </tbody></table></div>
+  <button class="primary" type="button" id="tSend">관제실에서 지침 보내기</button>
+  <p class="fb"></p><div class="out"></div>`;
+  const q=s=>b.querySelector(s);
+  q('#tSend').onclick=()=>{
+    const st=q('#tStore').value,n=+q('#tN').value;
+    if(!st){q('.fb').className='fb no';q('.fb').textContent='매장 칸이 비었어. 빈칸이 남으면 지침을 만들 수 없어.';return}
+    if(st!=='게임 오락실'){q('.fb').className='fb no';q('.fb').textContent=`검증 실패: /game 손님을 ${st}(으)로 보내면 엉뚱한 매장에 도착해. 관제실이 이런 실수를 막아 줘.`;return}
+    const all=[...rows,['/game',st,n]];
+    q('.fb').className='fb ok';q('.fb').textContent='검증 통과! 템플릿에 컨텍스트를 채워서 지침을 찍어냈어.';
+    q('.out').innerHTML=`<div class="tpl">${all.map(r=>`손님이 <span class="v">${r[0]}</span>로 오면 → <span class="v">${r[1]}</span>의 계산대 <span class="v">${r[2]}</span>개로 나눠 안내`).join('\n')}</div>
+    <div class="note" style="margin-top:10px">안내데스크 2,000곳에 새 지침 적용 완료 · 안내원 재시작 <b>0번</b> · 손님들은 아무것도 눈치채지 못했어.</div>`;
+    q('#tSend').disabled=true;q('#tStore').disabled=true;q('#tN').disabled=true;
+    nextBtn(b,res);
+  };
+});
+
+ACTS.kit=()=>new Promise(res=>{
+  const b=openModal('설계실 체험: 표준 세트 굽기','안내데스크마다 들어갈 물건만 골라서 붕어빵 틀(AMI)을 구워 봐.');
+  const items=[
+    {t:'Envoy (안내원 프로그램)',ok:true},
+    {t:'로그·모니터링 도구',ok:true},
+    {t:'보안 잠금 설정 (하드닝)',ok:true},
+    {t:'인증 부스 (사이드카)',ok:true},
+    {t:'팝콘 기계',ok:false,why:'팝콘 기계는 안내데스크에 필요 없어!'},
+    {t:'매장 재고 상자',ok:false,why:'재고는 매장(백엔드) 몫이야. 안내데스크엔 안 넣어.'},
+  ];
+  const on=new Set();
+  b.innerHTML=`<div class="kit"></div><button class="primary" type="button" id="kBake">Packer로 틀 굽기</button><p class="fb"></p><div class="dep"></div>`;
+  const q=s=>b.querySelector(s);
+  q('.kit').innerHTML=items.map((it,i)=>`<button class="opt" type="button" data-i="${i}">${it.t}</button>`).join('');
+  q('.kit').querySelectorAll('.opt').forEach(bt=>bt.onclick=()=>{const i=+bt.dataset.i;on.has(i)?on.delete(i):on.add(i);bt.classList.toggle('on',on.has(i))});
+  q('#kBake').onclick=()=>{
+    const bad=[...on].map(i=>items[i]).find(it=>!it.ok);
+    if(bad){q('.fb').className='fb no';q('.fb').textContent=bad.why;return}
+    if(on.size<4){q('.fb').className='fb no';q('.fb').textContent=`빠진 게 있어. 꼭 필요한 건 4개야. (지금 ${on.size}개)`;return}
+    q('.fb').className='fb ok';q('.fb').textContent='AMI 완성! 이제 설계도(CloudFormation)로 전 세계에 찍어내자.';
+    q('#kBake').disabled=true;q('.kit').querySelectorAll('.opt').forEach(x=>x.disabled=true);
+    const cities=['서울','도쿄','싱가포르','시드니','뭄바이','프랑크푸르트','런던','아일랜드','버지니아','오하이오','오리건','캘리포니아','상파울루'];
+    q('.dep').innerHTML=`<button class="primary" type="button" id="kDep">설계도로 13개 리전에 배포하기</button>`;
+    q('#kDep').onclick=()=>{
+      q('#kDep').remove();
+      q('.dep').innerHTML=`<div class="big" id="kCnt">0</div><div class="meta">개 안내데스크 가동 중 (도시 목록은 예시)</div><div class="cities">${cities.map(c=>`<div class="city">${c}<div class="bar"><i></i></div></div>`).join('')}</div>`;
+      requestAnimationFrame(()=>q('.dep').querySelectorAll('.bar i').forEach((x,i)=>setTimeout(()=>x.style.width='100%',RM?0:i*60)));
+      const t0=performance.now(),dur=RM?0:1800;
+      (function tick(now){const p=dur?Math.min(1,(now-t0)/dur):1;q('#kCnt').textContent=Math.round(2000*p).toLocaleString();if(p<1)requestAnimationFrame(tick);else{q('.fb').textContent='손으로 벽돌 하나 안 쌓고 2,000개 완성. 이게 IaC의 힘이야.';nextBtn(b,res)}})(t0);
+    };
+  };
+});
+
+ACTS.gate=()=>new Promise(res=>{
+  const b=openModal('보안 게이트 체험','손님마다 맞는 부스로 처리해 줘. 바깥 검문소(CloudFront)가 가짜 손님 떼(DDoS)는 이미 막아 놨어.');
+  const vs=[
+    {who:'민지',card:'명찰 있음 · 일반 손님 · 할일 문구점 가는 중',a:0},
+    {who:'???',card:'명찰 없음 · "그냥 들어갈게요~"',a:1},
+    {who:'준호',card:'명찰 있음 · 일반 손님 · "직원 전용 창고"에 들어가려 함',a:2},
+    {who:'봇123',card:'명찰 있음 · 1분 동안 300번째 방문',a:3},
+    {who:'서연',card:'명찰 있음 · 위키 서점 직원 · 위키 서점 창고로 출근',a:0},
+    {who:'수상한 손님',card:'명찰 사진이 얼굴과 다름 (위조)',a:1},
+  ];
+  const acts=['통과','누구세요? (인증 부스)','자격 없음 (인가 부스)','잠깐 쉬세요 (속도 제한 부스)'];
+  const hints=['문제없는 손님이야. 통과시켜도 돼.','누구인지 확인이 안 되는 손님이야. 명찰부터 확인해야지.','누구인지는 확인됐는데, 들어갈 자격이 없는 곳이야.','너무 자주 오고 있어. 잠깐 기다리게 해야 해.'];
+  const logTxt=['통과','인증 실패 → 돌려보냄','인가 거부 → 돌려보냄','속도 제한 → 대기'];
+  let i=0;
+  b.innerHTML=`<div class="cust"></div><div class="row"></div><p class="fb"></p><div class="log" aria-label="출입 기록"></div><p class="meta">↑ 출입 기록(액세스 로그)은 안내원이 알아서 적어.</p>`;
+  const q=s=>b.querySelector(s);
+  function show(){
+    if(i>=vs.length){q('.cust').innerHTML='<div class="bubble">6명 처리 끝! 매장들은 경비원 없이도 안전해졌어.</div>';q('.row').innerHTML='';q('.fb').textContent='';nextBtn(b,res);return}
+    const v=vs[i];
+    q('.cust').innerHTML=`<div class="who">${v.who}</div><div class="bubble">${v.card}</div>`;
+    q('.row').innerHTML=acts.map((a,k)=>`<button class="opt" type="button" data-k="${k}">${a}</button>`).join('');
+    q('.row').querySelectorAll('.opt').forEach(bt=>bt.onclick=()=>{
+      const k=+bt.dataset.k;
+      if(k===v.a){q('.log').innerHTML+=`[10:${String(i*7+3).padStart(2,'0')}] ${v.who} → ${logTxt[k]}<br>`;q('.log').scrollTop=1e4;q('.fb').className='fb ok';q('.fb').textContent='정확해!';i++;setTimeout(show,450)}
+      else{bt.classList.add('wrong');q('.fb').className='fb no';q('.fb').textContent=hints[v.a]}
+    });
+  }
+  show();
+});
+
+ACTS.match=()=>new Promise(res=>{
+  const b=openModal('졸업 시험: 짝 맞추기','왼쪽 비유를 누르고, 오른쪽에서 맞는 진짜 용어를 눌러.');
+  const pairs=[['손님','클라이언트'],['안내원 엔보이','프록시 (Envoy)'],['관제실','컨트롤 플레인 (Sovereign)'],['입점 신청 창구','API (FastAPI)'],['대기함','큐 (SQS)'],['장부','데이터베이스 (DynamoDB)'],['붕어빵 틀','서버 이미지 (AMI)'],['안내데스크 옆 부스','사이드카']];
+  let sel=null,done=0;
+  b.innerHTML=`<div class="match"><div class="col L"></div><div class="col R"></div></div><p class="fb"></p>`;
+  const q=s=>b.querySelector(s);
+  q('.L').innerHTML=pairs.map((p,i)=>`<button class="opt" type="button" data-i="${i}">${p[0]}</button>`).join('');
+  q('.R').innerHTML=shuffle(pairs.map((p,i)=>({t:p[1],i}))).map(o=>`<button class="opt" type="button" data-i="${o.i}">${o.t}</button>`).join('');
+  q('.L').querySelectorAll('.opt').forEach(bt=>bt.onclick=()=>{q('.L').querySelectorAll('.opt').forEach(x=>x.classList.remove('sel'));bt.classList.add('sel');sel=bt});
+  q('.R').querySelectorAll('.opt').forEach(bt=>bt.onclick=()=>{
+    if(!sel){q('.fb').className='fb no';q('.fb').textContent='왼쪽 비유부터 골라 줘.';return}
+    if(sel.dataset.i===bt.dataset.i){[sel,bt].forEach(x=>{x.classList.remove('sel');x.classList.add('right');x.disabled=true});sel=null;done++;q('.fb').className='fb ok';q('.fb').textContent=`맞아! (${done} / ${pairs.length})`;
+      if(done===pairs.length){q('.fb').textContent='8개 전부 정답!';nextBtn(b,res)}}
+    else{bt.classList.add('shake');setTimeout(()=>bt.classList.remove('shake'),500);q('.fb').className='fb no';q('.fb').textContent='다시! 그 비유가 쇼핑몰에서 무슨 일을 했는지 떠올려 봐.'}
+  });
+});
+
+ACTS.final=()=>new Promise(res=>{
+  const b=openModal('영상 40분, 그림 한 장','쇼핑몰 이름 아래 작은 글씨가 영상 속 진짜 이름이야.');
+  const nd=(a,c)=>`<span class="node">${a}<em>${c}</em></span>`,ar='<span class="arr">→</span>';
+  const d=new Date();
+  b.innerHTML=`
+  <div class="flowlbl">① 손님이 들어오는 길</div>
+  <div class="flow">${[nd('손님','클라이언트'),nd('바깥 검문소','CloudFront · DDoS 방어'),nd('안내원 + 옆 부스','Envoy + 사이드카(인증·인가·속도 제한)'),nd('매장','백엔드 서비스 (Jira 등)')].join(ar)}</div>
+  <div class="flowlbl">② 새 매장이 등록되는 길</div>
+  <div class="flow">${[nd('사장님','개발자'),nd('입점 창구','FastAPI · API'),nd('대기함','SQS · 큐'),nd('로봇 직원','워커'),nd('장부','DynamoDB'),nd('관제실','Sovereign'),nd('안내원에게 새 지침','동적 설정 · 재시작 없음')].join(ar)}</div>
+  <div class="flowlbl">③ 안내데스크를 세우는 길</div>
+  <div class="flow">${[nd('체크리스트','SaltStack'),nd('틀 굽기','Packer → AMI'),nd('설계도','CloudFormation'),nd('13개 도시에 2,000개','리전 · 오토스케일링')].join(ar)}</div>
+  <div class="flowlbl">④ 그리고 제일 어려운 것</div>
+  <div class="flow">${nd('매일의 수리','유지보수 · Churn · 온콜')}</div>
+  <div class="cert"><div class="t">구름몰 수습 졸업</div><div>백엔드 용어 ${S.terms.length}개를 쇼핑몰로 익혔습니다.</div><div class="meta">${d.getFullYear()}. ${d.getMonth()+1}. ${d.getDate()}.</div></div>
+  <p class="meta" style="margin-top:10px">다시 보기: <a href="https://www.youtube.com/watch?v=55pTFVoclvE" target="_blank" rel="noopener">I was laid off by Atlassian</a></p>`;
+  nextBtn(b,res,'졸업하기');
+});
+
+/* ───────── 도감 ───────── */
+function openGloss(){
+  if(!started||busy)return;
+  glossOpen=true;
+  const b=openModal('용어 도감',`모은 단어 ${S.terms.length} / ${Object.keys(TERMS).length}개 · 쇼핑몰 비유 → 진짜 뜻`);
+  const got=Object.keys(TERMS).filter(k=>S.terms.includes(k));
+  b.innerHTML=(got.length?`<div class="gloss">${got.map(k=>{const t=TERMS[k];return `<div class="gcard"><div class="n">${t[0]}</div><div class="m">쇼핑몰: ${t[1]}</div><div class="r">${t[2]}</div>${t[3]?`<div class="v">영상 ${t[3]}</div>`:''}</div>`}).join('')}</div>`:'<p>아직 모은 단어가 없어. NPC들과 대화하면 채워져.</p>');
+  const bt=document.createElement('button');bt.className='primary';bt.type='button';bt.textContent='닫기';bt.onclick=closeGloss;b.appendChild(bt);bt.focus();
+}
+function closeGloss(){glossOpen=false;closeModal()}
+$('#bGloss').onclick=openGloss;
+$('#bReset').onclick=()=>{
+  if(busy)return;
+  const b=openModal('처음부터 다시 할까요?','진행도와 도감이 모두 지워져요.');
+  b.innerHTML='<div class="row"><button class="opt" type="button" id="rY">네, 처음부터</button><button class="opt" type="button" id="rN">아니요</button></div>';
+  b.querySelector('#rY').onclick=()=>{S={prog:0,c0:0,terms:[],x:15.5,y:20.3};P.x=S.x;P.y=S.y;save();hud();closeModal()};
+  b.querySelector('#rN').onclick=closeModal;
+};
+
+/* ───────── 그리기 ───────── */
+let DPR=1,cw=0,chh=0,T=32;
+function resize(){const r=stage.getBoundingClientRect();DPR=window.devicePixelRatio||1;cw=r.width;chh=r.height;cvs.width=Math.round(cw*DPR);cvs.height=Math.round(chh*DPR);T=Math.round(Math.max(26,Math.min(46,Math.min(cw/15,chh/10.5))))}
+new ResizeObserver(resize).observe(stage);resize();
+
+function rr(x,y,w,h,r){ctx.beginPath();ctx.roundRect?ctx.roundRect(x,y,w,h,r):ctx.rect(x,y,w,h)}
+function label(txt,x,y,size,col,bg){
+  ctx.font=`${size}px "Do Hyeon", "Apple SD Gothic Neo", sans-serif`;
+  const w=ctx.measureText(txt).width+size*.9,h=size*1.45;
+  if(bg){ctx.fillStyle=bg;rr(x-w/2,y-h/2,w,h,h/2.6);ctx.fill()}
+  ctx.fillStyle=col;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(txt,x,y+1);
+}
+function drawFurn(f){
+  const x=f.x*T,y=f.y*T,w=f.w*T,h=f.h*T,p=T*.08;
+  switch(f.kind){
+    case 'counter':
+      ctx.fillStyle=f.c;rr(x+p,y+p,w-2*p,h-2*p,6);ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,.35)';rr(x+p,y+p,w-2*p,h*.3,6);ctx.fill();
+      if(f.label)label(f.label,x+w/2,y+h*.6,T*.34,'#fff');break;
+    case 'shelf':
+      ctx.fillStyle='#8A5A3B';ctx.fillRect(x+p,y+p,w-2*p,h-2*p);
+      ['#E8604F','#3F8FD8','#FFC83D','#23A585'].forEach((c,i)=>{ctx.fillStyle=c;ctx.fillRect(x+p*2+i*(w-4*p)/4,y+h*.2,(w-4*p)/4-2,h*.55)});break;
+    case 'desk':
+      ctx.fillStyle='#2D6FB0';rr(x,y+p,w,h-p,10);ctx.fill();
+      ctx.fillStyle='#5FA3E6';rr(x,y+p,w,h*.35,10);ctx.fill();
+      label('안내데스크',x+w/2,y+h*.62,T*.38,'#fff');break;
+    case 'machine':
+      ctx.fillStyle='#6D6A80';rr(x+p,y+p,w-2*p,h-2*p,8);ctx.fill();
+      ctx.strokeStyle='#C9C4DA';ctx.lineWidth=3;
+      [[.3,.4],[.62,.6]].forEach(([a,c])=>{ctx.beginPath();ctx.arc(x+w*a,y+h*c,T*.35,0,Math.PI*2);ctx.stroke()});
+      break;
+    case 'pipes':
+      ctx.fillStyle='#8F8AA6';ctx.fillRect(x+w*.3,y,w*.4,h);ctx.fillStyle='#B0ABC6';ctx.fillRect(x+w*.3,y+h*.3,w*.4,h*.08);break;
+    case 'blueprint':
+      ctx.fillStyle='#255E91';rr(x+p,y+p,w-2*p,h-2*p,6);ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,.45)';ctx.lineWidth=1;
+      for(let i=1;i<6;i++){ctx.beginPath();ctx.moveTo(x+w*i/6,y+p*2);ctx.lineTo(x+w*i/6,y+h-p*2);ctx.stroke()}
+      ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.strokeRect(x+w*.25,y+h*.3,w*.3,h*.4);
+      label('설계도',x+w*.72,y+h*.5,T*.3,'#fff');break;
+    case 'queuebox':
+      ctx.fillStyle='#E8A93A';rr(x+p,y+p*2,w-2*p,h-3*p,5);ctx.fill();
+      ctx.fillStyle='#1B2040';ctx.fillRect(x+w*.25,y+h*.35,w*.5,h*.08);
+      label('대기함',x+w/2,y+h*1.05,T*.26,'#1B2040','rgba(255,255,255,.8)');break;
+    case 'ledger':
+      ctx.fillStyle='#6A4A33';ctx.fillRect(x+p,y+p,w-2*p,h-2*p);
+      for(let i=0;i<6;i++){ctx.fillStyle=i%2?'#F2E6CF':'#E4D3B3';ctx.fillRect(x+p*2+i*(w-4*p)/6,y+h*.2,(w-4*p)/6-2,h*.6)}
+      label('장부 (DB)',x+w/2,y-h*.18,T*.26,'#1B2040','rgba(255,255,255,.8)');break;
+    case 'robot':{
+      const cx=x+w/2,cy=y+h/2;
+      ctx.fillStyle='#9AA6BF';rr(cx-T*.3,cy-T*.2,T*.6,T*.5,6);ctx.fill();
+      ctx.fillStyle='#C8D1E3';rr(cx-T*.25,cy-T*.45,T*.5,T*.3,6);ctx.fill();
+      ctx.fillStyle='#23A585';ctx.fillRect(cx-T*.13,cy-T*.35,T*.07,T*.07);ctx.fillRect(cx+T*.06,cy-T*.35,T*.07,T*.07);
+      ctx.strokeStyle='#9AA6BF';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(cx,cy-T*.45);ctx.lineTo(cx,cy-T*.58);ctx.stroke();
+      label('워커',cx,y+h*1.05,T*.26,'#1B2040','rgba(255,255,255,.8)');break;}
+    case 'monitors':
+      for(let i=0;i<f.w;i++){const mx=x+i*T;ctx.fillStyle='#1B2040';rr(mx+p,y+p,T-2*p,h-2*p,4);ctx.fill();
+        ctx.strokeStyle='#5FE0B2';ctx.lineWidth=1.5;ctx.beginPath();for(let k=0;k<6;k++){const px=mx+p*2+k*(T-4*p)/5,py=y+h*.5+Math.sin(k*1.7+i+perf/600)*h*.18;k?ctx.lineTo(px,py):ctx.moveTo(px,py)}ctx.stroke()}
+      break;
+    case 'console':
+      ctx.fillStyle='#5A6488';rr(x+p,y+p,w-2*p,h-2*p,6);ctx.fill();
+      ['#FFC83D','#E8604F','#23A585','#3F8FD8','#FFC83D'].forEach((c,i)=>{ctx.fillStyle=c;ctx.beginPath();ctx.arc(x+w*(i+1)/6,y+h/2,T*.08,0,Math.PI*2);ctx.fill()});break;
+    case 'stage':
+      ctx.fillStyle='#C99A62';rr(x,y,w,h,10);ctx.fill();ctx.fillStyle='#E0B57E';rr(x+p,y+p,w-2*p,h*.4,8);ctx.fill();
+      label('졸업 무대',x+w/2,y+h*.78,T*.3,'#5A3B1C');break;
+    case 'gate':
+      for(let i=0;i<f.w;i++){const gx=x+i*T;ctx.fillStyle='#8C95AE';ctx.fillRect(gx+T*.15,y+T*.2,T*.2,T*.6);ctx.fillStyle='#E8604F';ctx.fillRect(gx+T*.35,y+T*.42,T*.55,T*.12)}
+      break;
+    case 'plant':
+      ctx.fillStyle='#A8683F';rr(x+T*.28,y+T*.55,T*.44,T*.35,4);ctx.fill();
+      ctx.fillStyle='#2F9E6A';ctx.beginPath();ctx.arc(x+T*.5,y+T*.42,T*.3,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#46B884';ctx.beginPath();ctx.arc(x+T*.4,y+T*.34,T*.14,0,Math.PI*2);ctx.fill();break;
+  }
+}
+function markerFor(n){
+  if(S.prog===0){
+    if(n.id==='minji') return S.c0===1?null:'!';
+    if(n.id==='keeper1'&&S.c0===1) return '!';
+  }
+  if(n.ch===undefined) return null;
+  if(n.ch<S.prog) return 'done';
+  if(n.ch===S.prog&&n.ch!==0) return '!';
+  return null;
+}
+function drawNPC(n,t){
+  const x=n.x*T,y=n.y*T;
+  ctx.fillStyle='rgba(20,24,50,.18)';ctx.beginPath();ctx.ellipse(x,y+T*.34,T*.3,T*.1,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=n.color;rr(x-T*.26,y-T*.06,T*.52,T*.42,T*.18);ctx.fill();
+  ctx.fillStyle='#F6D2B8';ctx.beginPath();ctx.arc(x,y-T*.2,T*.22,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=n.color;ctx.beginPath();ctx.arc(x,y-T*.28,T*.22,Math.PI,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#1B2040';ctx.fillRect(x-T*.1,y-T*.2,T*.05,T*.06);ctx.fillRect(x+T*.05,y-T*.2,T*.05,T*.06);
+  label(n.name,x,y+T*.58,Math.max(11,T*.27),'#fff','rgba(27,32,64,.78)');
+  const m=markerFor(n);
+  if(m==='!'){
+    const by=y-T*.78+(RM?0:Math.sin(t/220)*T*.07);
+    ctx.fillStyle='#FFC83D';ctx.strokeStyle='#1B2040';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,by,T*.2,0,Math.PI*2);ctx.fill();ctx.stroke();
+    label('!',x,by,T*.3,'#1B2040');
+  }else if(m==='done'){
+    ctx.fillStyle='#23A585';ctx.beginPath();ctx.arc(x+T*.28,y-T*.42,T*.13,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x+T*.22,y-T*.42);ctx.lineTo(x+T*.27,y-T*.36);ctx.lineTo(x+T*.35,y-T*.48);ctx.stroke();
+  }
+}
+function drawPlayer(t){
+  const bob=P.moving&&!RM?Math.abs(Math.sin(P.t*12))*T*.06:0;
+  const x=P.x*T,y=P.y*T-bob;
+  ctx.fillStyle='rgba(20,24,50,.22)';ctx.beginPath();ctx.ellipse(P.x*T,P.y*T+T*.34,T*.3,T*.1,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#1B2040';rr(x-T*.27,y-T*.06,T*.54,T*.42,T*.18);ctx.fill();
+  ctx.fillStyle='#FFC83D';ctx.fillRect(x-T*.05,y-T*.02,T*.1,T*.3);
+  ctx.fillStyle='#F6D2B8';ctx.beginPath();ctx.arc(x,y-T*.2,T*.22,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#FFC83D';ctx.beginPath();ctx.arc(x,y-T*.27,T*.23,Math.PI,Math.PI*2);ctx.fill();
+  const off={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]}[P.dir];
+  ctx.fillRect(x+off[0]*T*.14-T*.12,y-T*.3+(P.dir==='up'?-T*.02:0),T*.24,T*.05);
+  if(P.dir!=='up'){ctx.fillStyle='#1B2040';const ex=off[0]*T*.06;ctx.fillRect(x+ex-T*.1,y-T*.2,T*.05,T*.06);ctx.fillRect(x+ex+T*.05,y-T*.2,T*.05,T*.06)}
+  label('나',x,y+T*.58,Math.max(11,T*.27),'#1B2040','#FFC83D');
+}
+let perf=0;
+function draw(t){
+  perf=t;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.fillStyle='#232948';ctx.fillRect(0,0,cw,chh);
+  const vw=cw/T,vh=chh/T;
+  const camX=MW<=vw?(MW-vw)/2:Math.max(0,Math.min(MW-vw,P.x-vw/2));
+  const camY=MH<=vh?(MH-vh)/2:Math.max(0,Math.min(MH-vh,P.y-vh/2));
+  ctx.save();ctx.translate(Math.round(-camX*T),Math.round(-camY*T));
+  const x0=Math.max(0,Math.floor(camX)),x1=Math.min(MW-1,Math.ceil(camX+vw)),y0=Math.max(0,Math.floor(camY)),y1=Math.min(MH-1,Math.ceil(camY+vh));
+  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){
+    const g=G[y][x],px=x*T,py=y*T;
+    if(g==='#'){ctx.fillStyle='#39406A';ctx.fillRect(px,py,T,T);ctx.fillStyle='#4D5690';ctx.fillRect(px,py,T,T*.22);continue}
+    if(g==='x'){ctx.fillStyle='#EEF2F5';ctx.fillRect(px,py,T,T);ctx.fillStyle='#9FD3F0';ctx.fillRect(px+2,py+T*.2,T-4,T*.7);ctx.fillStyle='#39406A';ctx.fillRect(px,py+T*.85,T,T*.15);continue}
+    const z=g==='D'?null:zoneAt(x,y);
+    const c=z?z.c:['#EEF2F5','#E3E9EF'];
+    ctx.fillStyle=c[(x+y)&1];ctx.fillRect(px,py,T,T);
+  }
+  // 입구 매트
+  ctx.fillStyle='#C9D6E2';ctx.fillRect(14*T,20*T,4*T,T);
+  label('정문',16*T,20.5*T,T*.32,'#39406A');
+  F.forEach(drawFurn);
+  ZONES.forEach(z=>{if(z.name==='기계실'||z.name==='설계실')label(z.name,(z.x0+z.x1+1)/2*T,(z.y1+.55)*T,T*.32,'#fff','rgba(27,32,64,.7)');else label(z.name,(z.x0+z.x1+1)/2*T,(z.y1+.55)*T,T*.32,'#fff','rgba(27,32,64,.7)')});
+  label('광장',16*T,17*T,T*.3,'rgba(57,64,106,.45)');
+  const ents=[...NPCS.map(n=>({y:n.y,f:()=>drawNPC(n,t)})),{y:P.y,f:()=>drawPlayer(t)}].sort((a,b)=>a.y-b.y);
+  ents.forEach(e=>e.f());
+  // 목표 화살표
+  const tg=objective()[1];
+  if(tg&&!busy){const n=NPCS.find(v=>v.id===tg),d=Math.hypot(n.x-P.x,n.y-P.y);
+    if(d>2.6){const a=Math.atan2(n.y-P.y,n.x-P.x),r=T*1.05+(RM?0:Math.sin(t/200)*T*.08),ax=P.x*T+Math.cos(a)*r,ay=P.y*T+Math.sin(a)*r;
+      ctx.save();ctx.translate(ax,ay);ctx.rotate(a);ctx.fillStyle='#FFC83D';ctx.strokeStyle='#1B2040';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(T*.26,0);ctx.lineTo(-T*.12,-T*.18);ctx.lineTo(-T*.12,T*.18);ctx.closePath();ctx.fill();ctx.stroke();ctx.restore()}}
+  // 대화 힌트
+  const nn=!busy&&started&&modal.hidden?nearNPC():null;
+  if(nn) label(matchMedia('(pointer:coarse)').matches?'대화 버튼':'Space 대화',nn.x*T,nn.y*T-T*1.15,Math.max(12,T*.3),'#1B2040','#fff');
+  ctx.restore();
+}
+let last=performance.now();
+function loop(t){const dt=Math.min(.05,(t-last)/1000);last=t;update(dt);draw(t);requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+setInterval(()=>{if(started)save()},4000);
+
+/* ───────── 시작 ───────── */
+hud();
+if(S.prog>0||S.c0>0) $('#bStart').textContent='이어하기';
+$('#bStart').onclick=()=>{$('#title').hidden=true;started=true;cvs.focus()};
+cvs.addEventListener('pointerdown',()=>cvs.focus());
+})();
+</script>
